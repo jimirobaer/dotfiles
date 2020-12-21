@@ -1,27 +1,17 @@
 #!/usr/bin/env bash
 
-# Mac OS X configuration
-#
-# This configuration applies to the latest version of Mac OS X (currently
-# 10.10.1), and sets up preferences and configurations for all the built-in
-# services and apps. Third-party app config should be done elsewhere.
-#
-# Options:
-#   --no-restart: Don't restart any apps or services after running the script.
-#
-# @see: http://secrets.blacktree.com/?showapp=com.apple.finder
-#
-# @author Jeff Geerling, 2014
+# macOS configuration
+# ~/.macos
 
-# Warn that some commands will not be run if the script is not run as root.
-if [[ $EUID -ne 0 ]]; then
-  RUN_AS_ROOT=false
-  printf "Certain commands will not be run without sudo privileges. To run as root, run the same command prepended with 'sudo', for example: $ sudo $0\n\n" | fold -s -w 80
-else
-  RUN_AS_ROOT=true
-  # Update existing `sudo` timestamp until `.macos` has finished
-  while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
-fi
+# Close any open System Preferences panes, to prevent them from overriding
+# settings we’re about to change
+osascript -e 'tell application "System Preferences" to quit'
+
+# Ask for the administrator password upfront
+sudo -v
+
+# Keep-alive: update existing `sudo` time stamp until `.macos` has finished
+while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
 
 ###############################################################################
 # General UI/UX                                                               #
@@ -50,7 +40,7 @@ defaults write NSGlobalDomain NSDocumentSaveNewDocumentsToCloud -bool false
 # Automatically quit printer app once the print jobs complete
 defaults write com.apple.print.PrintingPrefs "Quit When Finished" -bool true
 
-# Reveal IP address, hostname, OS version, etc. when clicking the clock
+# Reveal IP address, hostname, OS version, etc. when clicking  the clock
 # in the login window
 if [[ "$RUN_AS_ROOT" = true ]]; then
   sudo defaults write /Library/Preferences/com.apple.loginwindow AdminHostInfo HostName
@@ -61,29 +51,46 @@ if [[ "$RUN_AS_ROOT" = true ]]; then
   systemsetup -setrestartfreeze on
 fi
 
+# Disable automatic termination of inactive apps
+defaults write NSGlobalDomain NSDisableAutomaticTermination -bool true
+
+# Disable automatic period substitution as it’s annoying when typing code
+defaults write NSGlobalDomain NSAutomaticPeriodSubstitutionEnabled -bool false
+
 # Disable smart quotes as they’re annoying when typing code
 defaults write NSGlobalDomain NSAutomaticQuoteSubstitutionEnabled -bool false
 
 # Disable smart dashes as they’re annoying when typing code
 defaults write NSGlobalDomain NSAutomaticDashSubstitutionEnabled -bool false
 
+# Disable the “Are you sure you want to open this application?” dialog
+defaults write com.apple.LaunchServices LSQuarantine -bool false
+
 ###############################################################################
-# SSD-specific tweaks                                                         #
+# Energy saving                                                               #
 ###############################################################################
 
 if [[ "$RUN_AS_ROOT" = true ]]; then
-  # Disable local Time Machine snapshots
-  sudo tmutil disablelocal
+  # Prevent Time Machine from prompting to use new hard drives as backup volume
+  defaults write com.apple.TimeMachine DoNotOfferNewDisksForBackup -bool true
 
-  # Disable hibernation (speeds up entering sleep mode)
+  # Disable local Time Machine backups
+  hash tmutil &> /dev/null && sudo tmutil disablelocal
+
+  # Never go into computer sleep mode
+  sudo systemsetup -setcomputersleep Off > /dev/null
+
+  # Hibernation mode
+  # 0: Disable hibernation (speeds up entering sleep mode)
+  # 3: Copy RAM to disk so the system state can still be restored in case of a
+  #    power failure.
   sudo pmset -a hibernatemode 0
 
   # Remove the sleep image file to save disk space
-  sudo rm /Private/var/vm/sleepimage
-  # Create a zero-byte file instead...
-  sudo touch /Private/var/vm/sleepimage
-  # ...and make sure it can’t be rewritten
-  sudo chflags uchg /Private/var/vm/sleepimage
+  sudo rm /private/var/vm/sleepimage
+  # Create a zero-byte file instead…
+  sudo touch /private/var/vm/sleepimage
+  # …and make sure it can’t be rewritten
 fi
 
 ###############################################################################
@@ -119,7 +126,7 @@ defaults write com.apple.screencapture location -string "${HOME}/Desktop"
 defaults write com.apple.screencapture type -string "png"
 
 # Enable subpixel font rendering on non-Apple LCDs
-defaults write NSGlobalDomain AppleFontSmoothing -int 2
+defaults write NSGlobalDomain AppleFontSmoothing -int 1
 
 ###############################################################################
 # Finder                                                                      #
@@ -194,6 +201,9 @@ defaults write com.apple.finder FXPreferredViewStyle -string "clmv"
 # Show the ~/Library folder
 chflags nohidden ~/Library
 
+# Show the /Volumes folder
+sudo chflags nohidden /Volumes
+
 # Expand the following File Info panes:
 # “General”, “Open with”, and “Sharing & Permissions”
 defaults write com.apple.finder FXInfoPanesExpanded -dict \
@@ -206,8 +216,8 @@ defaults write com.apple.finder FXInfoPanesExpanded -dict \
 # Dock, Dashboard, and hot corners                                            #
 ###############################################################################
 
-# Set the icon size of Dock items
-defaults write com.apple.dock tilesize -int 30
+# Set the icon size of Dock items to 48 pixels
+defaults write com.apple.dock tilesize -int 48
 
 # Speed up Mission Control animations
 defaults write com.apple.dock expose-animation-duration -float 0.15
@@ -215,9 +225,27 @@ defaults write com.apple.dock expose-animation-duration -float 0.15
 # Automatically hide and show the Dock
 defaults write com.apple.dock autohide -bool true
 
+# Show indicator lights for open applications in the Dock
+defaults write com.apple.dock show-process-indicators -bool true
+
+# Wipe all (default) app icons from the Dock
+# This is only really useful when setting up a new Mac, or if you don’t use
+# the Dock to launch apps.
+#defaults write com.apple.dock persistent-apps -array
+
+# Disable Dashboard
+defaults write com.apple.dashboard mcx-disabled -bool true
+
+# Don’t show Dashboard as a Space
+defaults write com.apple.dock dashboard-in-overlay -bool true
+
 ###############################################################################
 # Safari & WebKit                                                             #
 ###############################################################################
+
+# Privacy: don’t send search queries to Apple
+defaults write com.apple.Safari UniversalSearchEnabled -bool false
+defaults write com.apple.Safari SuppressSearchSuggestions -bool true
 
 # Set Safari’s home page to `about:blank` for faster loading
 defaults write com.apple.Safari HomePage -string "about:blank"
@@ -238,6 +266,9 @@ defaults write com.apple.Safari com.apple.Safari.ContentPageGroupIdentifier.WebK
 
 # Add a context menu item for showing the Web Inspector in web views
 defaults write NSGlobalDomain WebKitDeveloperExtras -bool true
+
+# Enable “Do Not Track”
+defaults write com.apple.Safari SendDoNotTrackHTTPHeader -bool true
 
 ###############################################################################
 # Mail                                                                        #
@@ -308,6 +339,28 @@ defaults write com.apple.TextEdit RichText -int 0
 # Open and save files as UTF-8 in TextEdit
 defaults write com.apple.TextEdit PlainTextEncoding -int 4
 defaults write com.apple.TextEdit PlainTextEncodingForWrite -int 4
+
+###############################################################################
+# Mac App Store                                                               #
+###############################################################################
+
+# Enable the WebKit Developer Tools in the Mac App Store
+defaults write com.apple.appstore WebKitDeveloperExtras -bool true
+
+# Enable Debug Menu in the Mac App Store
+defaults write com.apple.appstore ShowDebugMenu -bool true
+
+# Enable the automatic update check
+defaults write com.apple.SoftwareUpdate AutomaticCheckEnabled -bool true
+
+# Check for software updates daily, not just once per week
+defaults write com.apple.SoftwareUpdate ScheduleFrequency -int 1
+
+# Download newly available updates in background
+defaults write com.apple.SoftwareUpdate AutomaticDownload -int 1
+
+# Install System data files & security updates
+defaults write com.apple.SoftwareUpdate CriticalUpdateInstall -int 1
 
 ###############################################################################
 # Kill/restart affected applications                                          #
